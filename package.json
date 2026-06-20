@@ -1,0 +1,41 @@
+{
+  "name": "shadowdrop-zama",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.2.2",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:contracts": "forge test --root contracts -vvv",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@rainbow-me/rainbowkit": "2.2.11",
+    "@tanstack/react-query": "5.90.21",
+    "@tokenops/sdk": "1.0.0",
+    "@zama-fhe/react-sdk": "3.0.1",
+    "@zama-fhe/sdk": "3.0.1",
+    "clsx": "2.1.1",
+    "lucide-react": "0.468.0",
+    "next": "16.2.9",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "viem": "2.53.1",
+    "wagmi": "2.19.5",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.13",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "4.7.0",
+    "eslint": "9.39.1",
+    "eslint-config-next": "16.2.9",
+    "typescript": "5.9.3",
+    "vitest": "3.2.4"
+  }
+}
