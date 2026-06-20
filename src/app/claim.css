@@ -1,0 +1,12 @@
+.contractLine{display:flex;justify-content:space-between;margin-top:14px;font-size:11px;color:var(--muted)}
+.contractLine code{color:var(--ink)}
+.actionRow div{max-width:60%}
+.claimCenter{padding:85px 7vw;background:#dfe0d5;display:grid;grid-template-columns:1fr 1fr;gap:80px}
+.claimCenter h2{font-size:42px;letter-spacing:-.05em;margin:12px 0}
+.claimCenter p{color:var(--muted);max-width:590px}
+.claimBox{border:1px solid #bfc1b6;padding:28px;display:flex;flex-direction:column;gap:20px}
+.claimBox>div{display:flex;justify-content:space-between;border-bottom:1px solid #c5c7bd;padding-bottom:15px}
+.claimBox small{font:10px DM Mono;color:var(--muted)}
+.claimBox button{background:var(--acid);border:0;padding:16px 22px;font-weight:800;display:flex;justify-content:space-between}
+.claimBox button:disabled{filter:grayscale(1);opacity:.45}
+@media(max-width:850px){.claimCenter{grid-template-columns:1fr;padding:60px 24px;gap:30px}}
