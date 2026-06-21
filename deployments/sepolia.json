@@ -2,7 +2,13 @@
   "chainId": 11155111,
   "deployer": "0xEd9EDd8586b20524CafA4F568413C504C9B03172",
   "shadowCampaignRegistry": "0xc9136dc0bc439352aC919Ed9d366Ea36C16400ec",
+  "shadowConfidentialToken": "0x0A58e8cEc9Cf4d58157881377d542fcd65C04e79",
   "transactionHash": "0x31a35b306ef1499424f73093c1de5dc0767de564131800bfab25280e3c968faa",
+  "transactions": {
+    "shadowCampaignRegistry": "0x31a35b306ef1499424f73093c1de5dc0767de564131800bfab25280e3c968faa",
+    "shadowConfidentialToken": "0xb1197e64ad0d35eb227be89b807e04e8d271dd52a9e003bd60aaacad45225beb",
+    "shadowTokenMint10000": "0x0258ef317d4059765d7c94fa00a8cd61bc4e67fa6732f0bf159a9960709b5b17"
+  },
   "tokenOps": {
     "airdropFactory": "0xbE6A3B78B36684fFee48De77d47Bc3393F5Acd4c",
     "vestingFactory": "0xA87701CE9A52D43681600583a99c85b50DbE3150",

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "campaign": "Genesis encrypted airdrop",
+  "token": "0xYourConfidentialToken",
+  "chainId": 11155111,
+  "total": "5450.5",
+  "claims": [
+    {
+      "airdrop": "0xTokenOpsAirdropContract",
+      "recipient": "0xRecipientWallet",
+      "amountLabel": "1200",
+      "handle": "0xEncryptedHandle",
+      "inputProof": "0xEncryptedInputProof",
+      "signature": "0xIssuerSignature"
+    }
+  ]
+}

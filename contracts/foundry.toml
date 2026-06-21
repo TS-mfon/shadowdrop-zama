@@ -3,7 +3,13 @@ src = "src"
 test = "test"
 out = "out"
 solc_version = "0.8.27"
+evm_version = "cancun"
 optimizer = true
 optimizer_runs = 200
+allow_paths = ["../node_modules"]
 
-remappings = ["@openzeppelin/=../node_modules/@openzeppelin/"]
+remappings = [
+  "@fhevm/=../node_modules/@fhevm/",
+  "@openzeppelin/=../node_modules/@openzeppelin/",
+  "encrypted-types/=../node_modules/.pnpm/@fhevm+solidity@0.11.1/node_modules/encrypted-types/"
+]
