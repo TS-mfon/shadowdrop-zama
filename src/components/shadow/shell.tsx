@@ -5,10 +5,8 @@ import { WalletButton } from "./wallet-button";
 const links = [
   ["Dashboard", "/dashboard"],
   ["Create token", "/token/create"],
-  ["Mint", "/token/mint"],
   ["Airdrops", "/airdrops"],
   ["Create airdrop", "/airdrops/create"],
-  ["Claims", "/claims"],
   ["Docs", "/docs"],
 ] as const;
 
@@ -29,4 +27,3 @@ export function ShadowShell({ children }: { children: React.ReactNode }) {
 export function PageHeader({ eyebrow, title, copy }: { eyebrow: string; title: string; copy: string }) {
   return <section className="pageHero"><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{copy}</p></section>;
 }
-

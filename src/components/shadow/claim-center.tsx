@@ -1,13 +1,14 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useAccount, usePublicClient, useSwitchChain, useWalletClient } from "wagmi";
 import { sepolia } from "wagmi/chains";
-import { ArrowRight, Upload } from "lucide-react";
+import { ArrowRight, ShieldCheck, XCircle } from "lucide-react";
 import { createConfidentialAirdropClient } from "@tokenops/sdk/fhe-airdrop";
 import { getAddress, type Address, type Hex } from "viem";
 import { humanError, normalizeAddress } from "@/lib/shadow-config";
 
 type ClaimPayload = { airdrop: Address; recipient: Address; handle: Hex; inputProof: Hex; signature: Hex; amountLabel?: string };
+type StoredAirdrop = { campaign: string; airdrop: Address; token: Address; endAt: number; claims: ClaimPayload[] };
 
 export function ClaimCenter({ airdropHint }: { airdropHint?: string }) {
   const { address, chainId } = useAccount();
@@ -15,39 +16,36 @@ export function ClaimCenter({ airdropHint }: { airdropHint?: string }) {
   const { data: walletClient } = useWalletClient();
   const { switchChain } = useSwitchChain();
   const [claim, setClaim] = useState<ClaimPayload | null>(null);
-  const [status, setStatus] = useState("Import your authorization file to check eligibility.");
+  const drop = useMemo(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const stored: StoredAirdrop[] = JSON.parse(localStorage.getItem("shadowdrop:airdrops") || "[]");
+      return airdropHint ? stored.find((item) => item.airdrop.toLowerCase() === airdropHint.toLowerCase()) ?? null : stored[0] ?? null;
+    } catch {
+      return null;
+    }
+  }, [airdropHint]);
+  const [status, setStatus] = useState("Connect your wallet to check this airdrop.");
   const [busy, setBusy] = useState(false);
 
-  async function readClaim(file?: File) {
-    if (!file) return;
-    try {
-      const json = JSON.parse(await file.text());
-      const claims = Array.isArray(json.claims) ? json.claims : [json];
-      const found = claims.find((item: { recipient?: string; airdrop?: string }) => {
-        const walletMatches = address ? item.recipient?.toLowerCase() === address.toLowerCase() : true;
-        const airdropMatches = airdropHint ? item.airdrop?.toLowerCase() === airdropHint.toLowerCase() : true;
-        return walletMatches && airdropMatches;
-      });
-      if (!found) throw new Error(address ? "No authorization found for the connected wallet." : "Connect wallet to select the matching authorization.");
-      const parsed = {
-        airdrop: normalizeAddress(found.airdrop, "airdrop"),
-        recipient: normalizeAddress(found.recipient, "recipient"),
-        handle: found.handle,
-        inputProof: found.inputProof,
-        signature: found.signature,
-        amountLabel: found.amountLabel,
-      };
-      setClaim(parsed);
-      setStatus(`Eligible authorization loaded for ${parsed.recipient}. Public amount remains hidden.`);
-    } catch (error) {
-      setStatus(humanError(error));
+  function checkEligibility() {
+    if (!address) return setStatus("Connect wallet first.");
+    if (!drop) return setStatus("No local airdrop metadata found for this campaign.");
+    const found = drop.claims.find((item) => item.recipient.toLowerCase() === address.toLowerCase());
+    if (!found) {
+      setClaim(null);
+      return setStatus("Ineligible: this connected wallet is not in the encrypted authorization set.");
     }
+    const parsed = { ...found, airdrop: normalizeAddress(found.airdrop, "airdrop"), recipient: normalizeAddress(found.recipient, "recipient") };
+    setClaim(parsed);
+    setStatus("Eligible. Your encrypted claim authorization is ready; the allocation amount stays private.");
   }
 
   async function claimAllocation() {
-    if (!claim || !address || !publicClient || !walletClient) return setStatus("Connect wallet and load a claim file first.");
+    if (!claim || !address || !publicClient || !walletClient) return setStatus("Connect wallet and check eligibility first.");
     if (chainId !== sepolia.id) {
       await switchChain({ chainId: sepolia.id });
+      setStatus("Switched to Sepolia. Click claim again after the wallet finishes switching.");
       return;
     }
     if (getAddress(address) !== claim.recipient) return setStatus("Connected wallet does not match this private authorization.");
@@ -74,15 +72,15 @@ export function ClaimCenter({ airdropHint }: { airdropHint?: string }) {
     <div className="cardForm">
       <div className="eyebrow">RECIPIENT FLOW</div>
       <h2>Check eligibility and claim privately</h2>
-      <p>Eligibility is proven with a recipient-bound authorization. The encrypted amount handle/proof is submitted to TokenOps; observers do not see the amount.</p>
-      <label className="upload block"><Upload size={15}/> Import authorization JSON<input type="file" accept="application/json" onChange={(e) => readClaim(e.target.files?.[0])}/></label>
-      <button className="primary" disabled={!claim || !address || busy} onClick={claimAllocation}>{busy ? "Claiming…" : "Validate & claim"} <ArrowRight size={16}/></button>
+      <p>Select an airdrop from the airdrops page, connect your wallet, and check eligibility. No upload or database is used; this browser reads the locally saved encrypted authorization package.</p>
+      {drop && <div className="campaignTile"><small>AIRDROP</small><b>{drop.campaign}</b><code>{drop.airdrop}</code><span>Claim deadline: {new Date(drop.endAt * 1000).toLocaleString()}</span></div>}
+      <div className="ctaRow"><button type="button" className="secondaryLink" onClick={checkEligibility}>Check eligibility</button><button className="primary" disabled={!claim || !address || busy} onClick={claimAllocation}>{busy ? "Claiming…" : "Claim encrypted tokens"} <ArrowRight size={16}/></button></div>
     </div>
     <div className="infoCard">
       <h3>Eligibility</h3>
       <div className="statusBox"><small>Status</small><b>{status}</b></div>
-      {claim && <div className="kv"><span>Airdrop</span><code>{claim.airdrop}</code><span>Recipient</span><code>{claim.recipient}</code><span>Encrypted amount</span><b>{claim.amountLabel ? "loaded privately" : "hidden"}</b></div>}
+      {claim ? <div className="eligibility ok"><ShieldCheck/><b>Eligible</b><span>Amount encrypted with Zama/TokenOps</span></div> : <div className="eligibility"><XCircle/><b>Not checked or ineligible</b><span>Connect the wallet that was added by the issuer.</span></div>}
+      {claim && <div className="kv"><span>Airdrop</span><code>{claim.airdrop}</code><span>Recipient</span><code>{claim.recipient}</code><span>Encrypted amount</span><b>{claim.amountLabel ? "available only to claim flow" : "hidden"}</b></div>}
     </div>
   </section>;
 }
-

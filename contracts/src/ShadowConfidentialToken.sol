@@ -16,6 +16,7 @@ contract ShadowConfidentialToken is ZamaEthereumConfig, AccessControl, Pausable 
     uint8 public constant decimals = 6;
     uint64 public immutable maxSupply;
     uint64 public publicMintedSupply;
+    bool public issuerBootstrapSupply;
 
     mapping(address => euint64) private _balances;
     mapping(address => mapping(address => uint48)) public operatorUntil;
@@ -34,6 +35,7 @@ contract ShadowConfidentialToken is ZamaEthereumConfig, AccessControl, Pausable 
         name = name_;
         symbol = symbol_;
         maxSupply = maxSupply_;
+        issuerBootstrapSupply = true;
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(MINTER_ROLE, admin);
         _grantRole(PAUSER_ROLE, admin);
