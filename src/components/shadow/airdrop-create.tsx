@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount, usePublicClient, useSwitchChain, useWalletClient } from "wagmi";
 import { sepolia } from "wagmi/chains";
 import { ArrowRight, Plus, Trash2 } from "lucide-react";
@@ -10,6 +10,7 @@ import { humanError, shadowContracts, type AllocationRow, formatUnits6, normaliz
 import { shadowRegistryAbi } from "@/lib/shadow-abis";
 
 type DraftRow = { id: string; address: string; amount: string };
+type TokenRecord = { address: string; name: string; symbol: string; maxSupply: string; available: string; locked: string; owner: string; createdAt: number };
 
 export function AirdropCreate() {
   const { address, chainId } = useAccount();
@@ -18,12 +19,30 @@ export function AirdropCreate() {
   const { switchChain } = useSwitchChain();
   const [campaignName, setCampaignName] = useState("Genesis encrypted airdrop");
   const [token, setToken] = useState(() => typeof window === "undefined" ? "" : localStorage.getItem("shadowdrop:lastToken") ?? "");
+  const [tokens, setTokens] = useState<TokenRecord[]>([]);
+  const [lockAmount, setLockAmount] = useState("");
   const [deadlineDays, setDeadlineDays] = useState("30");
   const [draftRows, setDraftRows] = useState<DraftRow[]>([{ id: crypto.randomUUID(), address: "", amount: "" }]);
   const [rows, setRows] = useState<AllocationRow[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [status, setStatus] = useState("Enter eligible wallets and token amounts. Nothing is uploaded to a server.");
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const load = () => {
+      const all: TokenRecord[] = JSON.parse(localStorage.getItem("shadowdrop:tokens") || "[]");
+      const mine = address ? all.filter((item) => item.owner?.toLowerCase() === address.toLowerCase()) : all;
+      setTokens(mine);
+      if (!token && mine[0]) setToken(mine[0].address);
+    };
+    window.addEventListener("shadowdrop:tokens-updated", load);
+    window.addEventListener("storage", load);
+    const timer = window.setTimeout(load, 0);
+    return () => { window.clearTimeout(timer); window.removeEventListener("shadowdrop:tokens-updated", load); window.removeEventListener("storage", load); };
+  }, [address, token]);
+
+  const selectedToken = tokens.find((item) => item.address.toLowerCase() === token.toLowerCase());
 
   function updateRow(id: string, key: keyof Omit<DraftRow, "id">, value: string) {
     setDraftRows((items) => items.map((item) => item.id === id ? { ...item, [key]: value } : item));
@@ -56,7 +75,9 @@ export function AirdropCreate() {
     });
     setRows(parsedRows);
     setErrors(validationErrors);
-    setStatus(validationErrors.length ? `Fix ${validationErrors.length} row issue(s) before creating the airdrop.` : `Validated ${parsedRows.length} eligible wallet(s).`);
+    const totalRaw = parsedRows.reduce((total, row) => total + row.rawAmount, 0n);
+    if (!lockAmount && totalRaw > 0n) setLockAmount(formatUnits6(totalRaw));
+    setStatus(validationErrors.length ? `Fix ${validationErrors.length} row issue(s) before creating the airdrop.` : `Validated ${parsedRows.length} eligible wallet(s), total ${formatUnits6(totalRaw)}.`);
     return { parsedRows, validationErrors };
   }
 
@@ -80,6 +101,9 @@ export function AirdropCreate() {
       if (!Number.isFinite(days) || days < 1 || days > 365) throw new Error("Claim window must be between 1 and 365 days.");
       const endAt = now + Math.floor(days * 86400);
       const totalRaw = parsedRows.reduce((total, row) => total + row.rawAmount, 0n);
+      const lockRaw = parseTokenAmount(lockAmount || "0", "lock amount");
+      if (lockRaw !== totalRaw) throw new Error(`Lock amount must exactly equal recipient total. Lock ${formatUnits6(totalRaw)} tokens for this airdrop.`);
+      if (selectedToken && BigInt(selectedToken.available) < totalRaw) throw new Error(`Local token inventory shows only ${formatUnits6(BigInt(selectedToken.available))} ${selectedToken.symbol} available. Reduce allocations or deploy/mint another token.`);
       const salt = keccak256(stringToHex(`${campaignName}:${address}:${Date.now()}`));
       setStatus("Authorizing TokenOps airdrop factory to lock/fund tokens…");
       await setOperator({ publicClient, walletClient, token: tokenAddress, spender: shadowContracts.tokenOpsAirdropFactory, account: address, deadline: BigInt(now + 45 * 86400) });
@@ -112,6 +136,12 @@ export function AirdropCreate() {
       const payload = { version: 1, campaign: campaignName, token: tokenAddress, airdrop: result.airdrop, chainId: sepolia.id, startAt: now, endAt, total: formatUnits6(totalRaw), claims };
       const stored = JSON.parse(localStorage.getItem("shadowdrop:airdrops") || "[]");
       localStorage.setItem("shadowdrop:airdrops", JSON.stringify([payload, ...stored.filter((item: { airdrop?: string }) => item.airdrop?.toLowerCase() !== result.airdrop.toLowerCase())]));
+      if (selectedToken) {
+        const allTokens: TokenRecord[] = JSON.parse(localStorage.getItem("shadowdrop:tokens") || "[]");
+        const updated = allTokens.map((item) => item.address.toLowerCase() === selectedToken.address.toLowerCase() ? { ...item, available: (BigInt(item.available) - totalRaw).toString(), locked: (BigInt(item.locked || "0") + totalRaw).toString() } : item);
+        localStorage.setItem("shadowdrop:tokens", JSON.stringify(updated));
+        setTokens(updated.filter((item) => item.owner?.toLowerCase() === address.toLowerCase()));
+      }
       window.dispatchEvent(new Event("shadowdrop:airdrops-updated"));
       setStatus(`Airdrop live, funded, and saved in this browser at ${result.airdrop}. Eligible wallets can claim from the airdrops page on this device/browser.`);
     } catch (error) {
@@ -129,7 +159,9 @@ export function AirdropCreate() {
       <h2>Create, fund, and lock an encrypted airdrop</h2>
       <p>ShadowDrop uses TokenOps to deploy/fund the airdrop contract. You enter eligible wallets here; allocations are encrypted locally and stored only in this browser for claim UX.</p>
       <label>Campaign name<input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} /></label>
+      {tokens.length > 0 && <label>Pick token from your local inventory<select value={token} onChange={(e) => setToken(e.target.value)}>{tokens.map((item) => <option key={item.address} value={item.address}>{item.symbol} · available {formatUnits6(BigInt(item.available))}</option>)}</select></label>}
       <label>Confidential token address<input value={token} onChange={(e) => setToken(e.target.value)} placeholder="0x…" /></label>
+      <label>Amount to lock in airdrop contract<input inputMode="decimal" value={lockAmount} onChange={(e) => setLockAmount(e.target.value)} placeholder="must equal recipient total" /></label>
       <label>Claim window in days<input inputMode="numeric" value={deadlineDays} onChange={(e) => setDeadlineDays(e.target.value)} /></label>
       <div className="allocator">
         <div className="allocatorHead"><strong>Eligible wallets</strong><button type="button" onClick={addRow}><Plus size={15}/> Add wallet</button></div>
@@ -145,6 +177,7 @@ export function AirdropCreate() {
     <div className="infoCard">
       <h3>Preflight</h3>
       <div className="summary compact"><div><small>Recipients</small><strong>{rows.length}</strong></div><div><small>Total</small><strong>{formatUnits6(totalRaw)}</strong></div><div><small>Row errors</small><strong>{errors.length}</strong></div></div>
+      {selectedToken && <div className="statusBox"><small>Selected token balance</small><b>{formatUnits6(BigInt(selectedToken.available))} {selectedToken.symbol} available · {formatUnits6(BigInt(selectedToken.locked || "0"))} locked</b></div>}
       {errors.length > 0 && <ul className="errorList">{errors.slice(0, 6).map((error) => <li key={error}>{error}</li>)}</ul>}
       <div className="preview">{rows.slice(0, 5).map((row, index) => <div key={row.address}><span>{index + 1}</span><code>{row.address.slice(0, 10)}…{row.address.slice(-6)}</code><b>{row.amount}</b></div>)}</div>
       <div className="statusBox"><small>Status</small><b>{status}</b></div>
