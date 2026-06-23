@@ -17,6 +17,7 @@
     "@rainbow-me/rainbowkit": "2.2.11",
     "@tanstack/react-query": "5.90.21",
     "@tokenops/sdk": "1.0.0",
+    "@vercel/blob": "^2.4.1",
     "@zama-fhe/react-sdk": "3.0.1",
     "@zama-fhe/sdk": "3.0.1",
     "clsx": "2.1.1",

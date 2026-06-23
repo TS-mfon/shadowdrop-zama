@@ -24,7 +24,7 @@ No backend database is used. No recipient upload is required in the UI.
 | `/` | Product landing page and workflow overview |
 | `/dashboard` | Issuer dashboard |
 | `/token/create` | Connect, deploy confidential token, and mint issuer supply in one guided flow |
-| `/airdrops` | Available locally saved airdrops |
+| `/airdrops` | Globally available published airdrops |
 | `/airdrops/create` | Manual eligible-wallet entry, Zama encryption, TokenOps create/fund flow |
 | `/airdrops/[id]` | Campaign-specific eligibility and claim page |
 | `/docs` | In-app user documentation |
@@ -44,12 +44,12 @@ Issuer wallet
   -> TokenOps ConfidentialAirdropFactory create/fund
   -> funded ConfidentialAirdrop clone
   -> ShadowCampaignRegistry metadata
-  -> local browser airdrop registry
+  -> Vercel Blob shared airdrop registry
 
 Recipient wallet
   -> /airdrops
   -> select campaign
-  -> check local encrypted authorization package
+  -> request connected-wallet encrypted authorization package
   -> TokenOps signature validation
   -> encrypted handle + input proof
   -> confidential claim
@@ -57,9 +57,9 @@ Recipient wallet
 
 ## No-database model
 
-ShadowDrop intentionally does not run a database. The browser stores the airdrop claim package in `localStorage` after creation so the same browser can list available airdrops and check eligibility.
+ShadowDrop intentionally does not run a SQL database. Public campaign metadata and recipient-bound encrypted claim authorizations are stored as JSON objects in Vercel Blob. That makes created airdrops visible across browsers/devices without relying on `localStorage`, `sessionStorage`, IndexedDB, or a traditional database server.
 
-This is enough for the current no-backend testnet UX. If the same airdrop must be visible across devices without a centralized database, add decentralized storage later, for example IPFS/Arweave with encrypted campaign metadata.
+The API never returns the full claim list from the public airdrop listing. A connected recipient page requests only the encrypted authorization for that wallet.
 
 ## Privacy model
 
@@ -120,6 +120,7 @@ Environment:
 ```env
 NEXT_PUBLIC_SEPOLIA_RPC_URL=https://ethereum-sepolia-rpc.publicnode.com
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=your_project_id
+BLOB_READ_WRITE_TOKEN=vercel_blob_token
 ```
 
 ## Testing

@@ -5,12 +5,13 @@ import { sepolia } from "wagmi/chains";
 import { ArrowRight, Plus, Trash2 } from "lucide-react";
 import { createSepoliaEncryptorWeb, setOperator } from "@tokenops/sdk/fhe";
 import { createConfidentialAirdropFactoryClient, encryptUint64, signClaimAuthorization } from "@tokenops/sdk/fhe-airdrop";
-import { getAddress, keccak256, stringToHex } from "viem";
+import { getAddress, keccak256, stringToHex, type Address, type Hex } from "viem";
 import { humanError, shadowContracts, type AllocationRow, formatUnits6, normalizeAddress, parseTokenAmount } from "@/lib/shadow-config";
 import { shadowRegistryAbi } from "@/lib/shadow-abis";
 
 type DraftRow = { id: string; address: string; amount: string };
-type TokenRecord = { address: string; name: string; symbol: string; maxSupply: string; available: string; locked: string; owner: string; createdAt: number };
+type TokenRecord = { address: string; name: string; symbol: string; maxSupply: string; owner: string; createdAt: number };
+type ClaimsApiResponse = { ok?: boolean; error?: string; data?: unknown };
 
 export function AirdropCreate() {
   const { address, chainId } = useAccount();
@@ -18,28 +19,37 @@ export function AirdropCreate() {
   const { data: walletClient } = useWalletClient();
   const { switchChain } = useSwitchChain();
   const [campaignName, setCampaignName] = useState("Genesis encrypted airdrop");
-  const [token, setToken] = useState(() => typeof window === "undefined" ? "" : localStorage.getItem("shadowdrop:lastToken") ?? "");
+  const [token, setToken] = useState("");
   const [tokens, setTokens] = useState<TokenRecord[]>([]);
   const [lockAmount, setLockAmount] = useState("");
   const [deadlineDays, setDeadlineDays] = useState("30");
   const [draftRows, setDraftRows] = useState<DraftRow[]>([{ id: crypto.randomUUID(), address: "", amount: "" }]);
   const [rows, setRows] = useState<AllocationRow[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
-  const [status, setStatus] = useState("Enter eligible wallets and token amounts. Nothing is uploaded to a server.");
+  const [status, setStatus] = useState("Enter eligible wallets and token amounts. The funded airdrop will be published to shared Vercel Blob storage.");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const load = () => {
-      const all: TokenRecord[] = JSON.parse(localStorage.getItem("shadowdrop:tokens") || "[]");
-      const mine = address ? all.filter((item) => item.owner?.toLowerCase() === address.toLowerCase()) : all;
-      setTokens(mine);
-      if (!token && mine[0]) setToken(mine[0].address);
+    let ignore = false;
+    async function load() {
+      if (!address) {
+        if (!ignore) setTokens([]);
+        return;
+      }
+      try {
+        const response = await fetch(`/api/tokens?owner=${address}&chainId=${sepolia.id}`, { cache: "no-store" });
+        const body = await response.json() as { ok?: boolean; data?: TokenRecord[]; error?: string };
+        if (!response.ok || !body.ok) throw new Error(body.error || "Could not load issuer tokens.");
+        if (ignore) return;
+        const mine = body.data ?? [];
+        setTokens(mine);
+        if (!token && mine[0]) setToken(mine[0].address);
+      } catch (error) {
+        if (!ignore) setStatus(humanError(error));
+      }
     };
-    window.addEventListener("shadowdrop:tokens-updated", load);
-    window.addEventListener("storage", load);
-    const timer = window.setTimeout(load, 0);
-    return () => { window.clearTimeout(timer); window.removeEventListener("shadowdrop:tokens-updated", load); window.removeEventListener("storage", load); };
+    void load();
+    return () => { ignore = true; };
   }, [address, token]);
 
   const selectedToken = tokens.find((item) => item.address.toLowerCase() === token.toLowerCase());
@@ -103,7 +113,6 @@ export function AirdropCreate() {
       const totalRaw = parsedRows.reduce((total, row) => total + row.rawAmount, 0n);
       const lockRaw = parseTokenAmount(lockAmount || "0", "lock amount");
       if (lockRaw !== totalRaw) throw new Error(`Lock amount must exactly equal recipient total. Lock ${formatUnits6(totalRaw)} tokens for this airdrop.`);
-      if (selectedToken && BigInt(selectedToken.available) < totalRaw) throw new Error(`Local token inventory shows only ${formatUnits6(BigInt(selectedToken.available))} ${selectedToken.symbol} available. Reduce allocations or deploy/mint another token.`);
       const salt = keccak256(stringToHex(`${campaignName}:${address}:${Date.now()}`));
       setStatus("Authorizing TokenOps airdrop factory to lock/fund tokens…");
       await setOperator({ publicClient, walletClient, token: tokenAddress, spender: shadowContracts.tokenOpsAirdropFactory, account: address, deadline: BigInt(now + 45 * 86400) });
@@ -125,7 +134,7 @@ export function AirdropCreate() {
         claims.push({ airdrop: result.airdrop, recipient: row.address, amountLabel: row.amount, ...encryptedInput, signature });
       }
       setStatus("Registering campaign in ShadowDrop registry…");
-      await walletClient.writeContract({
+      const registryTx = await walletClient.writeContract({
         address: shadowContracts.registry,
         abi: shadowRegistryAbi,
         functionName: "registerCampaign",
@@ -133,17 +142,37 @@ export function AirdropCreate() {
         account: address,
         chain: sepolia,
       });
-      const payload = { version: 1, campaign: campaignName, token: tokenAddress, airdrop: result.airdrop, chainId: sepolia.id, startAt: now, endAt, total: formatUnits6(totalRaw), claims };
-      const stored = JSON.parse(localStorage.getItem("shadowdrop:airdrops") || "[]");
-      localStorage.setItem("shadowdrop:airdrops", JSON.stringify([payload, ...stored.filter((item: { airdrop?: string }) => item.airdrop?.toLowerCase() !== result.airdrop.toLowerCase())]));
-      if (selectedToken) {
-        const allTokens: TokenRecord[] = JSON.parse(localStorage.getItem("shadowdrop:tokens") || "[]");
-        const updated = allTokens.map((item) => item.address.toLowerCase() === selectedToken.address.toLowerCase() ? { ...item, available: (BigInt(item.available) - totalRaw).toString(), locked: (BigInt(item.locked || "0") + totalRaw).toString() } : item);
-        localStorage.setItem("shadowdrop:tokens", JSON.stringify(updated));
-        setTokens(updated.filter((item) => item.owner?.toLowerCase() === address.toLowerCase()));
-      }
-      window.dispatchEvent(new Event("shadowdrop:airdrops-updated"));
-      setStatus(`Airdrop live, funded, and saved in this browser at ${result.airdrop}. Eligible wallets can claim from the airdrops page on this device/browser.`);
+      await publicClient.waitForTransactionReceipt({ hash: registryTx });
+      setStatus("Publishing airdrop metadata to shared storage…");
+      const payload = {
+        version: 1,
+        campaign: campaignName,
+        token: tokenAddress,
+        airdrop: result.airdrop,
+        issuer: getAddress(address),
+        chainId: sepolia.id,
+        startAt: now,
+        endAt,
+        total: formatUnits6(totalRaw),
+        recipients: claims.length,
+        createdAt: Date.now(),
+        registryTx,
+        claims: claims.map((claim) => ({
+          airdrop: claim.airdrop as Address,
+          recipient: claim.recipient as Address,
+          handle: claim.handle as Hex,
+          inputProof: claim.inputProof as Hex,
+          signature: claim.signature as Hex,
+        })),
+      };
+      const response = await fetch("/api/airdrops", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => null) as ClaimsApiResponse | null;
+      if (!response.ok || !body?.ok) throw new Error(body?.error || "Airdrop was funded, but shared metadata could not be saved.");
+      setStatus(`Airdrop live, funded, and globally available at ${result.airdrop}. Eligible wallets can claim from the airdrops page on any device.`);
     } catch (error) {
       setStatus(humanError(error));
     } finally {
@@ -157,9 +186,9 @@ export function AirdropCreate() {
     <div className="cardForm">
       <div className="eyebrow">STEP 3 / AIRDROP</div>
       <h2>Create, fund, and lock an encrypted airdrop</h2>
-      <p>ShadowDrop uses TokenOps to deploy/fund the airdrop contract. You enter eligible wallets here; allocations are encrypted locally and stored only in this browser for claim UX.</p>
+      <p>ShadowDrop uses TokenOps to deploy/fund the airdrop contract. You enter eligible wallets here; claim authorizations are encrypted with Zama and published through shared Vercel Blob storage for global access.</p>
       <label>Campaign name<input value={campaignName} onChange={(e) => setCampaignName(e.target.value)} /></label>
-      {tokens.length > 0 && <label>Pick token from your local inventory<select value={token} onChange={(e) => setToken(e.target.value)}>{tokens.map((item) => <option key={item.address} value={item.address}>{item.symbol} · available {formatUnits6(BigInt(item.available))}</option>)}</select></label>}
+      {tokens.length > 0 && <label>Pick one of your deployed tokens<select value={token} onChange={(e) => setToken(e.target.value)}>{tokens.map((item) => <option key={item.address} value={item.address}>{item.symbol} · max supply {formatUnits6(BigInt(item.maxSupply))}</option>)}</select></label>}
       <label>Confidential token address<input value={token} onChange={(e) => setToken(e.target.value)} placeholder="0x…" /></label>
       <label>Amount to lock in airdrop contract<input inputMode="decimal" value={lockAmount} onChange={(e) => setLockAmount(e.target.value)} placeholder="must equal recipient total" /></label>
       <label>Claim window in days<input inputMode="numeric" value={deadlineDays} onChange={(e) => setDeadlineDays(e.target.value)} /></label>
@@ -177,11 +206,11 @@ export function AirdropCreate() {
     <div className="infoCard">
       <h3>Preflight</h3>
       <div className="summary compact"><div><small>Recipients</small><strong>{rows.length}</strong></div><div><small>Total</small><strong>{formatUnits6(totalRaw)}</strong></div><div><small>Row errors</small><strong>{errors.length}</strong></div></div>
-      {selectedToken && <div className="statusBox"><small>Selected token balance</small><b>{formatUnits6(BigInt(selectedToken.available))} {selectedToken.symbol} available · {formatUnits6(BigInt(selectedToken.locked || "0"))} locked</b></div>}
+      {selectedToken && <div className="statusBox"><small>Selected token</small><b>{selectedToken.symbol} · configured supply {formatUnits6(BigInt(selectedToken.maxSupply))}</b></div>}
       {errors.length > 0 && <ul className="errorList">{errors.slice(0, 6).map((error) => <li key={error}>{error}</li>)}</ul>}
       <div className="preview">{rows.slice(0, 5).map((row, index) => <div key={row.address}><span>{index + 1}</span><code>{row.address.slice(0, 10)}…{row.address.slice(-6)}</code><b>{row.amount}</b></div>)}</div>
       <div className="statusBox"><small>Status</small><b>{status}</b></div>
-      <p className="fineprint">No database is used. This browser keeps a local encrypted-claim package so the claim pages can list and check airdrops. To let another device claim from the same campaign without a database, share the generated airdrop metadata out-of-band or recreate/import it in that browser.</p>
+      <p className="fineprint">No SQL database is used. Public airdrop metadata and recipient-bound encrypted claim authorizations are stored in Vercel Blob so users can access the campaign from any browser.</p>
     </div>
   </section>;
 }

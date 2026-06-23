@@ -40,22 +40,21 @@ export function TokenCreate() {
       setStatus("Waiting for token deployment confirmation…");
       await publicClient.waitForTransactionReceipt({ hash });
       setToken(predicted);
-      try {
-        localStorage.setItem("shadowdrop:lastToken", predicted);
-        localStorage.setItem("shadowdrop:lastTokenSymbol", symbol.trim().toUpperCase());
-      } catch {}
       setStatus("Token deployed. Minting encrypted issuer supply in the same setup flow…");
       try {
         const mintData = encodeFunctionData({ abi: shadowTokenAbi, functionName: "mint", args: [activeAddress, BigInt(maxSupply)] });
         const mintHash = await ethereum.request({ method: "eth_sendTransaction", params: [{ from: activeAddress, to: predicted, data: mintData }] }) as `0x${string}`;
         await publicClient.waitForTransactionReceipt({ hash: mintHash });
-        const inventory = JSON.parse(localStorage.getItem("shadowdrop:tokens") || "[]");
-        const record = { address: predicted, name: name.trim(), symbol: symbol.trim().toUpperCase(), maxSupply: maxSupply.toString(), available: maxSupply.toString(), locked: "0", owner: activeAddress, createdAt: Date.now() };
-        localStorage.setItem("shadowdrop:tokens", JSON.stringify([record, ...inventory.filter((item: { address?: string }) => item.address?.toLowerCase() !== predicted.toLowerCase())]));
-        window.dispatchEvent(new Event("shadowdrop:tokens-updated"));
-        setStatus(`Token deployed at ${predicted}. Full configured supply was minted privately to your issuer wallet. Use it to create a funded airdrop.`);
+        const response = await fetch("/api/tokens", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ chainId: sepolia.id, address: predicted, name: name.trim(), symbol: symbol.trim().toUpperCase(), maxSupply: maxSupply.toString(), owner: activeAddress, deploymentTx: hash, mintTx: mintHash }),
+        });
+        const body = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
+        if (!response.ok || !body?.ok) throw new Error(body?.error || "Token deployed and minted, but shared token metadata could not be saved.");
+        setStatus(`Token deployed at ${predicted}. Full configured supply was minted privately to your issuer wallet and the token is now available globally for airdrop creation.`);
       } catch (mintError) {
-        setStatus(`Token deployed at ${predicted}, but issuer-supply mint failed: ${humanError(mintError)}. The token address was saved; retry token creation only if you want a fresh token.`);
+        setStatus(`Token deployed at ${predicted}, but setup did not finish: ${humanError(mintError)}. If minting failed, deploy a fresh token. If only metadata save failed, check Vercel Blob configuration.`);
       }
     } catch (error) {
       setStatus(humanError(error));
@@ -78,7 +77,7 @@ export function TokenCreate() {
     <div className="infoCard">
       <ShieldCheck />
       <h3>What this creates</h3>
-      <p>A Sepolia confidential token controlled by your wallet. You authorize TokenOps and lock/fund the required amount when creating the airdrop; no separate database or mint page is needed.</p>
+      <p>A Sepolia confidential token controlled by your wallet. The full configured supply is minted privately to your issuer wallet, then TokenOps locks the exact airdrop amount during campaign creation.</p>
       <div className="statusBox"><small>Status</small><b>{status}</b></div>
       {token && <a className="textLink" target="_blank" href={`https://sepolia.etherscan.io/address/${token}`}>{token}</a>}
     </div>
