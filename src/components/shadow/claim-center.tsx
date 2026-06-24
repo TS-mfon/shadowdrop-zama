@@ -11,6 +11,19 @@ type ClaimPayload = { airdrop: Address; recipient: Address; handle: Hex; inputPr
 type StoredAirdrop = { campaign: string; airdrop: Address; token: Address; endAt: number; claim?: ClaimPayload | null };
 type AirdropSummary = { campaign: string; airdrop: Address; token: Address; endAt: number };
 
+type TokenOpsBlocker = { code?: string; message?: string; name?: string; context?: Record<string, unknown> };
+
+function describeBlocker(blocker: TokenOpsBlocker) {
+  const code = blocker.code ?? blocker.name ?? "";
+  const message = blocker.message ?? "";
+  if (/ALREADY_CLAIMED/i.test(code + message)) return "This wallet has already claimed this authorization.";
+  if (/CLAIM_NOT_STARTED/i.test(code + message)) return "The claim window has not started yet.";
+  if (/CLAIM_WINDOW_CLOSED/i.test(code + message)) return "The claim window has closed.";
+  if (/PAUSED/i.test(code + message)) return "Claims are currently paused by the airdrop admin.";
+  if (/INSUFFICIENT.*FEE|fee|balance covers/i.test(code + message)) return "This wallet does not have enough Sepolia ETH to pay the claim fee/gas.";
+  return message || code || "Unknown TokenOps preflight blocker.";
+}
+
 export function ClaimCenter({ airdropHint }: { airdropHint?: string }) {
   const { address, chainId } = useAccount();
   const publicClient = usePublicClient();
@@ -47,6 +60,7 @@ export function ClaimCenter({ airdropHint }: { airdropHint?: string }) {
   async function checkEligibility() {
     if (!address) return setStatus("Connect wallet first.");
     if (!drop) return setStatus("No published airdrop metadata found for this campaign.");
+    setClaim(null);
     setBusy(true);
     try {
       const response = await fetch(`/api/airdrops/${drop.airdrop}?recipient=${address}`, { cache: "no-store" });
@@ -81,11 +95,16 @@ export function ClaimCenter({ airdropHint }: { airdropHint?: string }) {
       const code = await publicClient.getBytecode({ address: claim.airdrop });
       if (!code) throw new Error("Airdrop contract has no Sepolia bytecode.");
       const client = createConfidentialAirdropClient({ publicClient, walletClient, address: claim.airdrop });
+      setStatus("Running TokenOps preflight before wallet signature…");
+      const preflight = await client.preflightClaim({ caller: getAddress(address), encryptedAmountHandle: claim.handle });
+      if (!preflight.ready) {
+        throw new Error(`Claim is not ready: ${preflight.blockers.map((blocker) => describeBlocker(blocker as TokenOpsBlocker)).join(" ")}`);
+      }
       setStatus("Validating TokenOps signature without revealing amount…");
       const valid = await client.isSignatureValid({ encryptedAmountHandle: claim.handle, signature: claim.signature, caller: address });
       if (!valid) throw new Error("Claim authorization is invalid or already used.");
       setStatus("Submitting encrypted claim…");
-      const hash = await client.claim({ encryptedInput: { handle: claim.handle, inputProof: claim.inputProof }, signature: claim.signature, account: address });
+      const hash = await client.claim({ encryptedInput: { handle: claim.handle, inputProof: claim.inputProof }, signature: claim.signature, account: walletClient.account ?? address });
       await publicClient.waitForTransactionReceipt({ hash });
       setStatus(`Claim confirmed. Tx ${hash.slice(0, 10)}…`);
     } catch (error) {

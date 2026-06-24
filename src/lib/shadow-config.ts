@@ -67,6 +67,12 @@ export function humanError(error: unknown): string {
   if (/insufficient funds/i.test(message)) return "Insufficient Sepolia ETH for gas.";
   if (/chain|network/i.test(message)) return "Wrong network or RPC issue. Switch to Ethereum Sepolia and retry.";
   if (/invalid address|checksum|Address/i.test(message)) return message;
+  if (/TOKENOPS_ALREADY_CLAIMED|already claimed|already been redeemed/i.test(message)) return "This wallet has already claimed this airdrop.";
+  if (/TOKENOPS_CLAIM_NOT_STARTED|claim window has not started/i.test(message)) return "This airdrop claim window has not started yet.";
+  if (/TOKENOPS_CLAIM_WINDOW_CLOSED|claim window has closed/i.test(message)) return "This airdrop claim window has closed.";
+  if (/TOKENOPS_INVALID_SIGNATURE|invalid signature|Claim authorization is invalid/i.test(message)) return "Claim authorization is invalid for this wallet or this encrypted amount.";
+  if (/TOKENOPS_INSUFFICIENT_BALANCE|InsufficientBalance|ZeroBalance|FHE_HANDLE_NOT_ALLOWED|SenderNotAllowed|handle not allowed/i.test(message)) return "The airdrop contract does not appear to have enough funded confidential token balance for this claim. Recreate/fund the airdrop from the issuer wallet.";
+  if (/Claim is not ready/i.test(message)) return message;
   if (/execution reverted/i.test(message)) return "Transaction reverted. Check token balance, operator approval, campaign window, and funding.";
   if (/relayer|encrypt|FHE|proof/i.test(message)) return `Zama encryption failed: ${message}`;
   return message || "Unexpected error.";
